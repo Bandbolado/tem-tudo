@@ -38,7 +38,7 @@ fullscreen = 0
 android.permissions = INTERNET,WRITE_EXTERNAL_STORAGE,READ_EXTERNAL_STORAGE,READ_PHONE_STATE
 
 # (int) Target Android API, should be as high as possible.
-android.api = 31
+android.api = 33
 
 # (int) Minimum API your APK will support.
 android.minapi = 21
@@ -47,7 +47,7 @@ android.minapi = 21
 android.ndk = 25b
 
 # (int) Android SDK version to use
-android.sdk = 31
+android.sdk = 33
 
 # (bool) Use --private data storage (True) or --dir public storage (False)
 android.private_storage = True
@@ -56,7 +56,7 @@ android.private_storage = True
 android.logcat_filters = *:S python:D
 
 # (bool) Copy library instead of making a libpymodules.so
-android.copy_libs = 1
+# android.copy_libs = 1
 
 # (list) The Android archs to build for, choices: armeabi-v7a, arm64-v8a, x86, x86_64
 android.archs = arm64-v8a,armeabi-v7a
