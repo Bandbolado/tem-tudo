@@ -16,11 +16,11 @@ source.dir = .
 source.include_exts = py,png,jpg,kv,atlas,json
 
 # (str) Application versioning (method 1)
-version = 1.0.1
+version = 1.0.2
 
 # (list) Application requirements
 # comma separated e.g. requirements = sqlite3,kivy
-requirements = python3==3.9.9,kivy==2.1.0,android,pyjnius
+requirements = python3,kivy,android
 
 # (str) Supported orientation (landscape, sensorLandscape, portrait or all)
 orientation = portrait
