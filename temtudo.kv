@@ -1,0 +1,407 @@
+from kivy.app import App
+from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.label import Label
+from kivy.uix.textinput import TextInput
+from kivy.uix.button import Button
+from kivy.uix.spinner import Spinner
+from kivy.uix.scrollview import ScrollView
+from kivy.core.window import Window
+from kivy.core.clipboard import Clipboard
+from functools import partial
+import time
+import json
+import os
+
+# --- DADOS DA EMPRESA ---
+RAZAO_SOCIAL = "Tem Tudo 1.99"
+ENDERECO = "Rua Itapiru 543"
+TELEFONE = "(21) 96602-0453"
+CNPJ = "50.785.469/0001-51"
+
+class CaixaApp(App):
+    def build(self):
+        self.produtos = []
+        self.subtotal = 0.0
+        self.total_final = 0.0
+        
+        # Layout Principal
+        self.main_layout = BoxLayout(orientation='vertical', padding=15, spacing=10)
+        
+        # --- 1. ABAS DE NAVEGAÇÃO (Aumentadas) ---
+        abas_layout = BoxLayout(size_hint=(1, 0.1), spacing=5) # Aumentei altura para 0.1
+        
+        btn_aba_venda = Button(text="1. CAIXA", background_color=(0, 0.8, 0, 1), bold=True, font_size=32)
+        btn_aba_venda.bind(on_press=self.mostrar_tela_venda)
+        
+        btn_aba_entrega = Button(text="2. ENTREGA", background_color=(0, 0.4, 0.8, 1), bold=True, font_size=32)
+        btn_aba_entrega.bind(on_press=self.mostrar_tela_entrega)
+        
+        btn_aba_hist = Button(text="3. HISTÓRICO", background_color=(0.5, 0.5, 0.5, 1), bold=True, font_size=32)
+        btn_aba_hist.bind(on_press=self.mostrar_tela_historico)
+        
+        abas_layout.add_widget(btn_aba_venda)
+        abas_layout.add_widget(btn_aba_entrega)
+        abas_layout.add_widget(btn_aba_hist)
+        
+        self.main_layout.add_widget(abas_layout)
+        
+        # --- TELA 1: VENDA ---
+        self.tela_venda = BoxLayout(orientation='vertical', spacing=10)
+        
+        # Cabeçalho
+        self.header = Label(text=f"{RAZAO_SOCIAL}\n{TELEFONE}", font_size=45, size_hint=(1, 0.12), bold=True, halign='center')
+        self.tela_venda.add_widget(self.header)
+        
+        # Inputs Produto
+        box_prod = BoxLayout(orientation='vertical', size_hint=(1, 0.14))
+        box_prod.add_widget(Label(text="PRODUTO:", font_size=32, size_hint_y=0.4, halign='left', text_size=(Window.width, None), bold=True))
+        self.nome_input = TextInput(multiline=False, font_size=35, padding_y=(15,15))
+        box_prod.add_widget(self.nome_input)
+        self.tela_venda.add_widget(box_prod)
+        
+        linha_valores = GridLayout(cols=2, size_hint=(1, 0.14), spacing=15)
+        
+        box_qtd = BoxLayout(orientation='vertical')
+        box_qtd.add_widget(Label(text="QTD:", font_size=32, size_hint_y=0.4, bold=True))
+        self.qtd_input = TextInput(multiline=False, input_type='number', text="1", font_size=35, halign='center', padding_y=(15,15))
+        box_qtd.add_widget(self.qtd_input)
+        linha_valores.add_widget(box_qtd)
+        
+        box_preco = BoxLayout(orientation='vertical')
+        box_preco.add_widget(Label(text="VALOR:", font_size=32, size_hint_y=0.4, bold=True))
+        self.valor_input = TextInput(multiline=False, input_type='number', font_size=35, halign='center', padding_y=(15,15))
+        box_preco.add_widget(self.valor_input)
+        linha_valores.add_widget(box_preco)
+        
+        self.tela_venda.add_widget(linha_valores)
+        
+        # Botoes Acao (Adicionar / Remover)
+        linha_btn = BoxLayout(size_hint=(1, 0.12), spacing=10)
+        btn_add = Button(text="ADICIONAR (+)", size_hint_x=0.7, background_color=(1, 0.8, 0, 1), color=(0,0,0,1), bold=True, font_size=32)
+        btn_add.bind(on_press=self.adicionar_produto)
+        linha_btn.add_widget(btn_add)
+        
+        btn_rem = Button(text="DESFAZER", size_hint_x=0.3, background_color=(1, 0, 0, 1), bold=True, font_size=28) # Um pouco menor pra caber
+        btn_rem.bind(on_press=self.remover_ultimo_produto)
+        linha_btn.add_widget(btn_rem)
+        self.tela_venda.add_widget(linha_btn)
+        
+        # Lista Interativa
+        self.scroll_view = ScrollView(size_hint=(1, 0.25))
+        self.lista_container = GridLayout(cols=1, spacing=10, size_hint_y=None)
+        self.lista_container.bind(minimum_height=self.lista_container.setter('height'))
+        self.scroll_view.add_widget(self.lista_container)
+        self.tela_venda.add_widget(self.scroll_view)
+        
+        # Totais e Opcoes
+        linha_opcoes = GridLayout(cols=2, size_hint=(1, 0.12), spacing=10)
+        
+        box_desc = BoxLayout(orientation='vertical')
+        box_desc.add_widget(Label(text="DESC %:", font_size=32, bold=True))
+        self.desc_input = TextInput(multiline=False, input_type='number', text="0", font_size=35, halign='center')
+        self.desc_input.bind(text=self.recalcular_tudo)
+        box_desc.add_widget(self.desc_input)
+        linha_opcoes.add_widget(box_desc)
+        
+        box_pgto = BoxLayout(orientation='vertical')
+        box_pgto.add_widget(Label(text="PAGAMENTO:", font_size=32, bold=True))
+        self.pagamento_spinner = Spinner(text='DINHEIRO', values=('DINHEIRO', 'PIX', 'CREDITO', 'DEBITO'), font_size=28, bold=True)
+        box_pgto.add_widget(self.pagamento_spinner)
+        linha_opcoes.add_widget(box_pgto)
+        
+        self.tela_venda.add_widget(linha_opcoes)
+        
+        self.total_label = Label(text="R$ 0,00", font_size=100, color=(0, 1, 1, 1), bold=True, size_hint=(1, 0.22))
+        self.tela_venda.add_widget(self.total_label)
+        
+        self.subtotal_label = Label(text="Subtotal: 0,00", font_size=32, color=(0.7,0.7,0.7,1), size_hint=(1, 0.06))
+        self.tela_venda.add_widget(self.subtotal_label)
+
+        # Troco
+        painel_troco = GridLayout(cols=2, size_hint=(1, 0.14), spacing=10)
+        
+        box_rec = BoxLayout(orientation='vertical')
+        box_rec.add_widget(Label(text="RECEBIDO:", font_size=32, bold=True))
+        self.pago_input = TextInput(multiline=False, input_type='number', hint_text="0.00", font_size=40, halign='center', padding_y=(10,10))
+        self.pago_input.bind(text=self.recalcular_tudo)
+        box_rec.add_widget(self.pago_input)
+        painel_troco.add_widget(box_rec)
+        
+        box_trc = BoxLayout(orientation='vertical')
+        box_trc.add_widget(Label(text="TROCO:", font_size=32, bold=True))
+        self.troco_label = Label(text="0,00", font_size=45, color=(0,1,0,1), bold=True)
+        box_trc.add_widget(self.troco_label)
+        painel_troco.add_widget(box_trc)
+        
+        self.tela_venda.add_widget(painel_troco)
+
+        # --- TELA 2: ENTREGA ---
+        self.tela_entrega = BoxLayout(orientation='vertical', spacing=15, padding=20)
+        self.tela_entrega.add_widget(Label(text="ENTREGA", font_size=50, color=(1,1,0,1), size_hint=(1, 0.1), bold=True))
+        
+        self.tela_entrega.add_widget(Label(text="Cliente:", size_hint=(1, 0.05), font_size=32, halign='left', text_size=(Window.width, None)))
+        self.cli_nome = TextInput(multiline=False, size_hint=(1, 0.08), font_size=32)
+        self.tela_entrega.add_widget(self.cli_nome)
+        
+        self.tela_entrega.add_widget(Label(text="Endereço:", size_hint=(1, 0.05), font_size=32, halign='left', text_size=(Window.width, None)))
+        self.cli_end = TextInput(multiline=False, size_hint=(1, 0.08), font_size=32)
+        self.tela_entrega.add_widget(self.cli_end)
+        
+        self.tela_entrega.add_widget(Label(text="Celular:", size_hint=(1, 0.05), font_size=32, halign='left', text_size=(Window.width, None)))
+        self.cli_tel = TextInput(multiline=False, input_type='number', size_hint=(1, 0.08), font_size=32)
+        self.tela_entrega.add_widget(self.cli_tel)
+        
+        self.tela_entrega.add_widget(Label(text="", size_hint=(1, 0.4)))
+        
+        # --- TELA 3: HISTÓRICO ---
+        self.tela_historico = BoxLayout(orientation='vertical', spacing=10, padding=10)
+        self.tela_historico.add_widget(Label(text="HISTÓRICO", font_size=40, size_hint=(1, 0.1), bold=True))
+        
+        self.scroll_hist = ScrollView(size_hint=(1, 0.8))
+        self.hist_container = GridLayout(cols=1, spacing=15, size_hint_y=None)
+        self.hist_container.bind(minimum_height=self.hist_container.setter('height'))
+        self.scroll_hist.add_widget(self.hist_container)
+        self.tela_historico.add_widget(self.scroll_hist)
+        
+        btn_atualizar_hist = Button(text="ATUALIZAR LISTA", size_hint=(1, 0.12), background_color=(0.5, 0.5, 0.5, 1), font_size=32, bold=True)
+        btn_atualizar_hist.bind(on_press=self.carregar_historico)
+        self.tela_historico.add_widget(btn_atualizar_hist)
+
+        # Inicializacao
+        self.conteudo_atual = self.tela_venda
+        self.main_layout.add_widget(self.tela_venda)
+        
+        # Rodapé
+        botoes_fim = BoxLayout(size_hint=(1, 0.15), spacing=10)
+        btn_limpar = Button(text="NOVA", background_color=(1, 0, 0, 1), font_size=32, bold=True)
+        btn_limpar.bind(on_press=self.nova_venda)
+        botoes_fim.add_widget(btn_limpar)
+        
+        btn_orcamento = Button(text="ORÇ.", background_color=(1, 0.8, 0, 1), color=(0,0,0,1), font_size=32, bold=True)
+        btn_orcamento.bind(on_press=self.copiar_orcamento)
+        botoes_fim.add_widget(btn_orcamento)
+        
+        btn_copiar = Button(text="PRINT", background_color=(1, 1, 1, 1), color=(0,0,0,1), font_size=32, bold=True)
+        btn_copiar.bind(on_press=self.copiar_nota)
+        botoes_fim.add_widget(btn_copiar)
+        
+        self.main_layout.add_widget(botoes_fim)
+        
+        return self.main_layout
+
+    # --- NAVEGAÇÃO ---
+    def mostrar_tela_venda(self, instance): self.trocar_tela(self.tela_venda)
+    def mostrar_tela_entrega(self, instance): self.trocar_tela(self.tela_entrega)
+    def mostrar_tela_historico(self, instance):
+        self.trocar_tela(self.tela_historico)
+        self.carregar_historico(None)
+
+    def trocar_tela(self, nova_tela):
+        if self.conteudo_atual != nova_tela:
+            self.main_layout.remove_widget(self.conteudo_atual)
+            self.main_layout.add_widget(nova_tela, index=1)
+            self.conteudo_atual = nova_tela
+
+    # --- HISTÓRICO ---
+    def carregar_historico(self, instance):
+        self.hist_container.clear_widgets()
+        registros = []
+        
+        if os.path.exists('vendas.json'):
+            try:
+                with open('vendas.json', 'r') as f:
+                    v = json.load(f)
+                    for x in v: x['tipo'] = 'VENDA'
+                    registros.extend(v)
+            except: pass
+            
+        if os.path.exists('orcamentos.json'):
+            try:
+                with open('orcamentos.json', 'r') as f:
+                    o = json.load(f)
+                    for x in o: x['tipo'] = 'ORCAMENTO'
+                    registros.extend(o)
+            except: pass
+            
+        registros.reverse()
+        
+        if not registros:
+            self.hist_container.add_widget(Label(text="Vazio", font_size=32, size_hint_y=None, height=60))
+            return
+
+        for item in registros:
+            cor = (0, 0.6, 0, 1) if item['tipo'] == 'VENDA' else (1, 0.8, 0, 1)
+            txt_cor = (1,1,1,1) if item['tipo'] == 'VENDA' else (0,0,0,1)
+            texto = f"{item['data']} - {item['tipo']}\n{item['cliente']}\nTotal: R$ {item['total']:.2f}"
+            
+            btn = Button(
+                text=texto, 
+                size_hint_y=None, 
+                height=180, 
+                background_color=cor, 
+                color=txt_cor, 
+                font_size=32, # Fonte Histórico Gigante
+                bold=True,
+                halign='center'
+            )
+            btn.bind(size=self._update_text_size_btn)
+            btn.bind(on_press=partial(self.re_copiar_nota, item['texto_nota']))
+            self.hist_container.add_widget(btn)
+
+    def _update_text_size_btn(self, instance, value):
+        instance.text_size = (instance.width, None)
+
+    def re_copiar_nota(self, texto, instance):
+        Clipboard.copy(texto)
+        self.total_label.text = "COPIADO!"
+
+    # --- LÓGICA CAIXA ---
+    def adicionar_produto(self, instance):
+        nome = self.nome_input.text.strip()
+        valor_txt = self.valor_input.text.replace(',', '.').strip()
+        qtd_txt = self.qtd_input.text.strip()
+        if not nome or not valor_txt: return
+        try:
+            unitario = float(valor_txt)
+            qtd = float(qtd_txt) if qtd_txt else 1.0
+            total_item = unitario * qtd
+            self.produtos.append({'nome': nome, 'unitario': unitario, 'qtd': qtd, 'total': total_item})
+            self.recalcular_tudo()
+            self.atualizar_lista_visual()
+            self.nome_input.text = ""
+            self.valor_input.text = ""
+            self.qtd_input.text = "1"
+        except ValueError: pass
+
+    def remover_ultimo_produto(self, instance):
+        if self.produtos:
+            self.produtos.pop()
+            self.recalcular_tudo()
+            self.atualizar_lista_visual()
+            
+    def remover_item_especifico(self, indice, instance):
+        if 0 <= indice < len(self.produtos):
+            del self.produtos[indice]
+            self.recalcular_tudo()
+            self.atualizar_lista_visual()
+
+    def recalcular_tudo(self, instance=None, value=None):
+        self.subtotal = sum(item['total'] for item in self.produtos)
+        try: desc_pct = float(self.desc_input.text.replace(',', '.') or 0)
+        except: desc_pct = 0
+        self.total_final = self.subtotal - (self.subtotal * (desc_pct / 100))
+        
+        self.subtotal_label.text = f"Subtotal: R$ {self.subtotal:.2f}".replace('.', ',')
+        self.total_label.text = f"R$ {self.total_final:.2f}".replace('.', ',')
+        
+        try:
+            recebido = float(self.pago_input.text.replace(',', '.') or 0)
+            troco = recebido - self.total_final
+            if recebido == 0:
+                self.troco_label.text = "0,00"
+                self.troco_label.color = (0.6, 0.6, 0.6, 1)
+            elif troco < 0:
+                self.troco_label.text = "FALTA"
+                self.troco_label.color = (1, 0, 0, 1)
+            else:
+                self.troco_label.text = f"{troco:.2f}".replace('.', ',')
+                self.troco_label.color = (0, 1, 0, 1)
+        except: pass
+
+    def atualizar_lista_visual(self):
+        self.lista_container.clear_widgets()
+        for i, item in enumerate(self.produtos):
+            linha = BoxLayout(size_hint_y=None, height=70, spacing=10) # Altura linha item
+            qtd = int(item['qtd']) if item['qtd'].is_integer() else item['qtd']
+            txt = f"{qtd}x {item['nome']} (R$ {item['total']:.2f})"
+            lbl = Label(text=txt, font_size=32, color=(1, 1, 0, 1), size_hint_x=0.85, halign='left', text_size=(Window.width*0.8, None), bold=True)
+            btn = Button(text="X", background_color=(1, 0, 0, 1), bold=True, font_size=32, size_hint_x=0.15)
+            btn.bind(on_press=partial(self.remover_item_especifico, i))
+            linha.add_widget(lbl)
+            linha.add_widget(btn)
+            self.lista_container.add_widget(linha)
+
+    # --- ARQUIVOS E IMPRESSAO ---
+    def salvar_registro(self, tipo, conteudo_texto):
+        arquivo = 'orcamentos.json' if tipo == 'ORCAMENTO' else 'vendas.json'
+        dados = {
+            "data": time.strftime('%d/%m %H:%M'),
+            "tipo": tipo,
+            "cliente": self.cli_nome.text.strip() or "Balcão",
+            "total": self.total_final,
+            "texto_nota": conteudo_texto
+        }
+        lista = []
+        if os.path.exists(arquivo):
+            try:
+                with open(arquivo, 'r') as f: lista = json.load(f)
+            except: pass
+        lista.append(dados)
+        try:
+            with open(arquivo, 'w') as f: json.dump(lista, f, indent=4)
+        except: pass
+
+    def gerar_texto_nota(self, titulo="RECIBO NAO FISCAL", eh_orcamento=False):
+        L = 32; CP = 10; CN = L - CP - 1
+        txt = f"{self.center_txt(RAZAO_SOCIAL, L)}\n{self.center_txt(ENDERECO, L)}\n{self.center_txt('Tel: '+TELEFONE, L)}\n{'-'*L}\n{self.center_txt(titulo, L)}\nDATA: {time.strftime('%d/%m/%y %H:%M')}\n{'-'*L}\n"
+        txt += f"{'ITEM':<{CN}} {'TOTAL':>{CP}}\n{'-'*L}\n"
+        for item in self.produtos:
+            q = int(item['qtd']) if item['qtd'].is_integer() else item['qtd']
+            pr = f"R$ {item['total']:.2f}".replace('.', ',')
+            nm = f"{q}x {item['nome']}"
+            if len(nm) <= CN: txt += f"{nm:<{CN}} {pr:>{CP}}\n"
+            else: txt += f"{nm[:CN]:<{CN}} {pr:>{CP}}\n{self.quebra_linha(nm[CN:], L)}\n"
+        txt += '-'*L + "\n"
+        if self.subtotal != self.total_final:
+            txt += f"SUB: R$ {self.subtotal:.2f}\nDESC: -R$ {(self.subtotal-self.total_final):.2f}\n{'-'*L}\n"
+        txt += f"TOTAL A PAGAR: R$ {self.total_final:.2f}\n".replace('.', ',')
+        if not eh_orcamento:
+            txt += f"\nFORMA PAGTO: {self.pagamento_spinner.text}\n"
+            if self.pago_input.text: txt += f"Valor Pago:    R$ {self.pago_input.text}\nTROCO:         R$ {self.troco_label.text.replace('FALTA','---')}\n"
+        if self.cli_nome.text or self.cli_end.text:
+            txt += f"\n{'-'*L}\nDADOS ENTREGA\n{'-'*L}\n"
+            if self.cli_nome.text: txt += f"Cli: {self.cli_nome.text}\n"
+            if self.cli_tel.text: txt += f"Tel: {self.cli_tel.text}\n"
+            if self.cli_end.text: txt += f"End: {self.quebra_linha(self.cli_end.text, L)}\n"
+        txt += "\nOrçamento valido 5 dias.\n\n\n" if eh_orcamento else "\n\nObrigado pela preferencia!\n\n\n"
+        return txt
+
+    def center_txt(self, t, w): return t[:w].center(w) if len(t) > w else t.center(w)
+    def quebra_linha(self, t, w): return "\n".join([t[i:i+w] for i in range(0, len(t), w)])
+
+    def copiar_nota(self, instance):
+        if not self.produtos: return
+        txt = self.gerar_texto_nota(titulo="RECIBO NAO FISCAL", eh_orcamento=False)
+        Clipboard.copy(txt)
+        self.salvar_registro('VENDA', txt)
+        self.total_label.text = "COPIADO!"
+
+    def copiar_orcamento(self, instance):
+        if not self.produtos: return
+        txt = self.gerar_texto_nota(titulo="ORÇAMENTO", eh_orcamento=True)
+        Clipboard.copy(txt)
+        self.salvar_registro('ORCAMENTO', txt)
+        self.total_label.text = "ORÇAMENTO!"
+
+    def nova_venda(self, instance):
+        self.produtos = []
+        self.subtotal = 0.0
+        self.total_final = 0.0
+        self.lista_container.clear_widgets()
+        self.subtotal_label.text = "Subtotal: 0,00"
+        self.total_label.text = "R$ 0,00"
+        self.troco_label.text = "0,00"
+        self.troco_label.color = (0.6, 0.6, 0.6, 1)
+        self.nome_input.text = ""
+        self.valor_input.text = ""
+        self.qtd_input.text = "1"
+        self.pago_input.text = ""
+        self.desc_input.text = "0"
+        self.cli_nome.text = ""
+        self.cli_end.text = ""
+        self.cli_tel.text = ""
+        self.pagamento_spinner.text = 'DINHEIRO'
+
+if __name__ == '__main__':
+    CaixaApp().run()

@@ -1,0 +1,67 @@
+name: Build APK Android
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: 📥 Checkout código
+      uses: actions/checkout@v3
+    
+    - name: 🐍 Configurar Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.9'
+    
+    - name: 📦 Instalar Buildozer
+      run: |
+        pip install --upgrade pip
+        pip install buildozer cython==0.29.33
+    
+    - name: 🔧 Instalar dependências do sistema
+      run: |
+        sudo apt-get update -qq
+        sudo apt-get install -y \
+          build-essential \
+          git \
+          python3-pip \
+          libsdl2-dev \
+          libsdl2-image-dev \
+          libsdl2-mixer-dev \
+          libsdl2-ttf-dev \
+          libportmidi-dev \
+          libswscale-dev \
+          libavformat-dev \
+          libavcodec-dev \
+          zlib1g-dev \
+          libgstreamer1.0-dev \
+          gstreamer1.0-plugins-base \
+          libltdl-dev \
+          openjdk-17-jdk \
+          unzip \
+          autoconf \
+          libtool \
+          automake
+    
+    - name: 🔨 Gerar APK
+      run: |
+        buildozer android debug
+    
+    - name: 📤 Upload do APK
+      uses: actions/upload-artifact@v3
+      with:
+        name: temtudo-apk
+        path: bin/*.apk
+        if-no-files-found: error
+    
+    - name: 🎉 APK gerado com sucesso!
+      run: |
+        echo "✅ APK compilado com sucesso!"
+        echo "📱 Baixe na aba 'Actions' > 'Build APK Android' > 'Artifacts'"
